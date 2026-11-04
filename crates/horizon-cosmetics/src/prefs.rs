@@ -15,6 +15,11 @@ pub const OTHERS: &str = "cosmeticsOthers";
 pub const AURAS: &str = "cosmeticsAuras";
 /// Show my cosmetics: `true` (the default) or `false`.
 pub const MINE: &str = "cosmeticsMine";
+/// Horizon's mark by other Horizon players' names: `true` (the default) or `false`. The game's.
+pub const MARKS: &str = "horizonMarks";
+/// Show me as a Horizon player: `true` (the default) or `false`. The game's; the launcher reads it
+/// to draw your name tag as others see it.
+pub const LISTED: &str = "horizonListed";
 /// What the service confirmed, a `<uuid hex>:<true|false>` line per account.
 pub const CONFIRMED: &str = "cosmetics-visible.txt";
 
@@ -125,6 +130,15 @@ impl Prefs {
         fs::create_dir_all(home)?;
         fs::write(path, self.write_into(&text))
     }
+}
+
+/// Whether the game in `home` lets the service say its player plays Horizon (on unless off).
+pub fn listed(home: &Path) -> bool {
+    fs::read_to_string(home.join(FILE)).map_or(true, |t| {
+        !t.lines()
+            .filter_map(|l| l.split_once(':'))
+            .any(|(k, v)| k.trim() == LISTED && v.trim() == "false")
+    })
 }
 
 /// Whether the service last confirmed `uuid`'s cosmetics shown; None: never told this game.

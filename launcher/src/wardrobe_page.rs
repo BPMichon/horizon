@@ -649,6 +649,11 @@ impl Launcher {
         art::bake(&texels, t.width as usize, t.height as usize, 2., self.scale)
     }
 
+    /// Horizon's mark, as other Horizon players see it before your name.
+    fn wardrobe_horizon_mark(&self) -> Arc<RenderImage> {
+        art::bake(&horizon_cosmetics::mark::texels(), 8, 8, 2., self.scale)
+    }
+
     pub(super) fn wardrobe_page(&mut self, cx: &mut Context<Self>) -> Div {
         let t = self.theme;
         let signed_out = self.wardrobe.is_none() && self.wardrobe_account().is_none();
@@ -791,6 +796,9 @@ impl Launcher {
             .and_then(|i| i.tag)
             .map(|g| gpui::rgb(u32::from_be_bytes([0, g.line[0], g.line[1], g.line[2]])));
         let mark = tag.map(|i| self.wardrobe_mark(i));
+        // As the game draws it: Horizon's mark before the name (unless the game's "Show me as a
+        // Horizon player" is off), the style's badge after it.
+        let horizon = prefs::listed(&backend::game_home()).then(|| self.wardrobe_horizon_mark());
         let name_tag = div()
             .flex()
             .items_center()
@@ -798,7 +806,7 @@ impl Launcher {
             .px(px(8.))
             .py(px(3.))
             .bg(gpui::rgba(0x0000_0066))
-            .children(mark.map(|m| gpui::img(m).size(px(16.))))
+            .children(horizon.map(|m| gpui::img(m).size(px(16.))))
             .child(
                 div()
                     .font_family(theme::MONO)
@@ -806,6 +814,7 @@ impl Launcher {
                     .text_color(gpui::white())
                     .child(me.name.clone()),
             )
+            .children(mark.map(|m| gpui::img(m).size(px(16.))))
             .when_some(line, |d, c| d.border_b_2().border_color(c));
         let turn = button("wardrobe-turn", "Turn", Kind::Ghost, &t).on_click(cx.listener(
             |this, _: &ClickEvent, _, cx| {

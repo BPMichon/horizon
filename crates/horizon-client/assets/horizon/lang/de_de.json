@@ -346,5 +346,9 @@
   "horizon.extras.cosmetics_auras.tooltip": "Auren und Spuren, die andere Spieler tragen. Standardmäßig aus.",
   "horizon.extras.cosmetics.shown": "Angezeigt",
   "horizon.extras.cosmetics.hidden": "Ausgeblendet",
-  "horizon.extras.cosmetics.name_tags": "Nur Namensschilder"
+  "horizon.extras.cosmetics.name_tags": "Nur Namensschilder",
+  "horizon.extras.horizon_marks": "Horizon-Logo neben Horizon-Spielern",
+  "horizon.extras.horizon_marks.tooltip": "Ein kleines Horizon-Logo vor den Namen anderer Spieler, die Horizon nutzen, über ihren Köpfen und in der Spielerliste. Nur Horizon-Spieler sehen es: Server erhalten nichts.",
+  "horizon.extras.horizon_me": "Mich als Horizon-Spieler zeigen",
+  "horizon.extras.horizon_me.tooltip": "Andere Horizon-Spieler sehen das Logo neben deinem Namen. Aus, meldet dich Horizons Kosmetik-Dienst nie als Horizon-Spieler."
 }

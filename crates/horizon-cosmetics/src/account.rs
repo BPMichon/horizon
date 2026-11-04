@@ -1,4 +1,5 @@
-//! The one account setting the game changes itself: "Show my cosmetics" (`PUT /v1/visible`).
+//! The account settings the game changes itself: "Show my cosmetics" (`PUT /v1/visible`) and
+//! "Show me as a Horizon player" (`POST /v1/presence`, also sent every `PRESENCE_EVERY` while on).
 //!
 //! The game signs in the way an online-mode server checks a player: the service hands out a
 //! one-time server id, the game tells Mojang's session server it joins it (`join`, with the
@@ -37,6 +38,10 @@ impl Call for crate::Http {
     }
 }
 
+/// How often a running game tells the service its player plays Horizon (the service's
+/// `PRESENCE_EVERY`; it forgets them some hours after the last time).
+pub const PRESENCE_EVERY: std::time::Duration = std::time::Duration::from_secs(3600);
+
 /// Turns "Show my cosmetics" on or off for the account `name`; `join` tells Mojang that account
 /// joins the server id the service chose. Returns what the service now keeps.
 pub fn set_visible(
@@ -45,6 +50,40 @@ pub fn set_visible(
     join: impl FnOnce(&str) -> Result<(), String>,
     visible: bool,
 ) -> Result<bool, String> {
+    let session = sign_in(service, name, join)?;
+    let me = service.call(
+        "PUT",
+        "/v1/visible",
+        Some(&session),
+        &json!({ "visible": visible }),
+    )?;
+    me["visible"].as_bool().ok_or_else(|| "no answer".into())
+}
+
+/// "Show me as a Horizon player": listed, other Horizon players see the mark by `name`'s name for
+/// a while (sent again every `PRESENCE_EVERY`); not listed, the service forgets it at once.
+pub fn set_listed(
+    service: &impl Call,
+    name: &str,
+    join: impl FnOnce(&str) -> Result<(), String>,
+    listed: bool,
+) -> Result<bool, String> {
+    let session = sign_in(service, name, join)?;
+    let answer = service.call(
+        "POST",
+        "/v1/presence",
+        Some(&session),
+        &json!({ "listed": listed }),
+    )?;
+    answer["listed"].as_bool().ok_or_else(|| "no answer".into())
+}
+
+/// The service's session for `name`, through Mojang's `join` of a server id it chose.
+fn sign_in(
+    service: &impl Call,
+    name: &str,
+    join: impl FnOnce(&str) -> Result<(), String>,
+) -> Result<String, String> {
     let start = service.call("POST", "/v1/auth/start", None, &json!({}))?;
     let server_id = start["server_id"].as_str().ok_or("no server id")?;
     join(server_id)?;
@@ -54,14 +93,7 @@ pub fn set_visible(
         None,
         &json!({ "server_id": server_id, "name": name }),
     )?;
-    let session = finish["session"].as_str().ok_or("no session")?;
-    let me = service.call(
-        "PUT",
-        "/v1/visible",
-        Some(session),
-        &json!({ "visible": visible }),
-    )?;
-    me["visible"].as_bool().ok_or_else(|| "no answer".into())
+    Ok(finish["session"].as_str().ok_or("no session")?.to_owned())
 }
 
 #[cfg(test)]
@@ -97,6 +129,7 @@ mod tests {
                 }
                 "/v1/auth/finish" => Err("HTTP 401".into()),
                 "/v1/visible" if s == Some("svc") => Ok(json!({"visible": body["visible"]})),
+                "/v1/presence" if s == Some("svc") => Ok(json!({"listed": body["listed"]})),
                 _ => Err("HTTP 401".into()),
             }
         }
@@ -132,5 +165,18 @@ mod tests {
         assert_eq!(service.sent.borrow().len(), 1);
         // A join Mojang never saw: the service refuses the id.
         assert!(set_visible(&service, "Alex", |_| Ok(()), false).is_err());
+    }
+
+    #[test]
+    fn leaving_the_list_signs_in_the_same_way() {
+        let service = Service::default();
+        let join = |id: &str| {
+            *service.joined.borrow_mut() = Some(id.to_owned());
+            Ok(())
+        };
+        assert_eq!(set_listed(&service, "Alex", join, false), Ok(false));
+        let sent = service.sent.borrow();
+        assert_eq!(sent[2].1, "/v1/presence");
+        assert_eq!((sent[2].2.as_deref(), &sent[2].3), (Some("svc"), &json!({"listed": false})));
     }
 }

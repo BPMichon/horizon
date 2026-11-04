@@ -159,6 +159,10 @@ pub struct Extras {
     pub cosmetics_mine: bool,
     pub cosmetics_others: horizon_cosmetics::prefs::Others,
     pub cosmetics_auras: bool,
+    /// Horizon's mark before the names of other Horizon players (name tags, player list), and
+    /// whether the service may say this player plays Horizon: both on by default.
+    pub horizon_marks: bool,
+    pub horizon_listed: bool,
     /// 3D skin layers (`threeDSkinLayers`, Options → Skin Customization): each
     /// painted texel of a player's outer layer drawn as a slab
     /// (`horizon_client::mobs::skin_layers`).
@@ -212,6 +216,8 @@ impl Default for Extras {
             cosmetics_mine: true,
             cosmetics_others: horizon_cosmetics::prefs::Others::Shown,
             cosmetics_auras: false,
+            horizon_marks: true,
+            horizon_listed: true,
             three_d_skin_layers: false,
         }
     }
@@ -314,6 +320,8 @@ impl Extras {
                         horizon_cosmetics::prefs::Others::parse(value).unwrap_or(e.cosmetics_others)
                 }
                 "cosmeticsAuras" => e.cosmetics_auras = flag(e.cosmetics_auras),
+                horizon_cosmetics::prefs::MARKS => e.horizon_marks = flag(e.horizon_marks),
+                horizon_cosmetics::prefs::LISTED => e.horizon_listed = flag(e.horizon_listed),
                 SKIN_LAYERS_KEY => e.three_d_skin_layers = flag(e.three_d_skin_layers),
                 _ => {}
             }
@@ -322,7 +330,7 @@ impl Extras {
     }
     pub fn serialize(&self) -> String {
         format!(
-            "packBrowser:{}\nfullbright:{}\ndynamicLights:{}\nzoom:{}\nzoomKey:{}\nzoomLevel:{}\nzoomSmooth:{}\nzoomSensitivity:{}\nfps:{}\nfpsCorner:{}\nfpsLows:{}\nkeystrokes:{}\nkeystrokesCorner:{}\nkeystrokesCps:{}\nmovedToMods:{}\nminimap:{}\nminimapCorner:{}\nminimapSize:{}\nminimapShape:{}\nminimapZoom:{}\nminimapRotate:{}\nautoReconnect:{}\nuiSoundReserve:{}\nownNameTag:{}\nhideBlockParticles:{}\nmouseTweaks:{}\nmouseTweaksWheel:{}\nsort:{}\nsortKey:{}\nchatAnimation:{}\nchatIndicator:{}\n{}:{}\nagentControl:{}\nreproKeys:{}\ndiscordPresence:{}\nsplitscreen:{}\nsplitscreenTwo:{}\nsplitscreenThree:{}\nsplitscreenNames:{}\nwheelCyclesSettings:{}\nmusicOff:{}\nmusicPage:{}\ncosmeticsMine:{}\ncosmeticsOthers:{}\ncosmeticsAuras:{}\n{}:{}\n",
+            "packBrowser:{}\nfullbright:{}\ndynamicLights:{}\nzoom:{}\nzoomKey:{}\nzoomLevel:{}\nzoomSmooth:{}\nzoomSensitivity:{}\nfps:{}\nfpsCorner:{}\nfpsLows:{}\nkeystrokes:{}\nkeystrokesCorner:{}\nkeystrokesCps:{}\nmovedToMods:{}\nminimap:{}\nminimapCorner:{}\nminimapSize:{}\nminimapShape:{}\nminimapZoom:{}\nminimapRotate:{}\nautoReconnect:{}\nuiSoundReserve:{}\nownNameTag:{}\nhideBlockParticles:{}\nmouseTweaks:{}\nmouseTweaksWheel:{}\nsort:{}\nsortKey:{}\nchatAnimation:{}\nchatIndicator:{}\n{}:{}\nagentControl:{}\nreproKeys:{}\ndiscordPresence:{}\nsplitscreen:{}\nsplitscreenTwo:{}\nsplitscreenThree:{}\nsplitscreenNames:{}\nwheelCyclesSettings:{}\nmusicOff:{}\nmusicPage:{}\ncosmeticsMine:{}\ncosmeticsOthers:{}\ncosmeticsAuras:{}\n{}:{}\n{}:{}\n{}:{}\n",
             bool_text(self.pack_browser),
             bool_text(self.fullbright),
             bool_text(self.dynamic_lights),
@@ -373,6 +381,10 @@ impl Extras {
             bool_text(self.cosmetics_mine),
             self.cosmetics_others.name(),
             bool_text(self.cosmetics_auras),
+            horizon_cosmetics::prefs::MARKS,
+            bool_text(self.horizon_marks),
+            horizon_cosmetics::prefs::LISTED,
+            bool_text(self.horizon_listed),
             SKIN_LAYERS_KEY,
             bool_text(self.three_d_skin_layers),
         )
@@ -546,6 +558,8 @@ pub enum Item {
     CosmeticsMine,
     CosmeticsOthers,
     CosmeticsAuras,
+    HorizonMarks,
+    HorizonMe,
 }
 /// The Extras page: headers (language keys) and items.
 pub fn rows() -> Vec<Result<Item, &'static str>> {
@@ -581,6 +595,8 @@ pub fn rows() -> Vec<Result<Item, &'static str>> {
             Ok(CosmeticsMine),
             Ok(CosmeticsOthers),
             Ok(CosmeticsAuras),
+            Ok(HorizonMarks),
+            Ok(HorizonMe),
         ]);
     }
     rows
@@ -612,6 +628,8 @@ impl Item {
             Item::CosmeticsMine => "horizon.extras.cosmetics_mine",
             Item::CosmeticsOthers => "horizon.extras.cosmetics_others",
             Item::CosmeticsAuras => "horizon.extras.cosmetics_auras",
+            Item::HorizonMarks => "horizon.extras.horizon_marks",
+            Item::HorizonMe => "horizon.extras.horizon_me",
         }
     }
     /// The language key of the description shown as the row's tooltip.
@@ -640,6 +658,8 @@ impl Item {
             Item::CosmeticsMine => "horizon.extras.cosmetics_mine.tooltip",
             Item::CosmeticsOthers => "horizon.extras.cosmetics_others.tooltip",
             Item::CosmeticsAuras => "horizon.extras.cosmetics_auras.tooltip",
+            Item::HorizonMarks => "horizon.extras.horizon_marks.tooltip",
+            Item::HorizonMe => "horizon.extras.horizon_me.tooltip",
         }
     }
     /// The caption in the current language (English when the key is missing).
@@ -677,6 +697,8 @@ impl Item {
             Item::CosmeticsMine => "My cosmetics",
             Item::CosmeticsOthers => "Other players' cosmetics",
             Item::CosmeticsAuras => "Others' auras and trails",
+            Item::HorizonMarks => "Show the Horizon logo next to Horizon players",
+            Item::HorizonMe => "Show me as a Horizon player",
         }
     }
     /// The switch this setting belongs to: it does nothing while that is off.
@@ -690,7 +712,7 @@ impl Item {
             Fullbright | DynamicLights | OwnNameTag | HideBlockParticles | MouseTweaks | Sort
             | AutoReconnect | NoAi | AgentControl | ReproKeys | DiscordPresence | Splitscreen
             | ChatAnimation | WheelCyclesSettings | MusicPage | PackBrowser | CosmeticsMine
-            | CosmeticsOthers | CosmeticsAuras => {
+            | CosmeticsOthers | CosmeticsAuras | HorizonMarks | HorizonMe => {
                 return None;
             }
         })
@@ -755,6 +777,12 @@ impl Item {
                 "What other Horizon players wear: everything, only their name tag styles, or nothing. Hidden, the game never asks what they wear."
             }
             Item::CosmeticsAuras => "Auras and trails other players wear. Off by default.",
+            Item::HorizonMarks => {
+                "A small Horizon logo before the names of other players who use Horizon, above their heads and in the player list. Only Horizon players see it: servers receive nothing."
+            }
+            Item::HorizonMe => {
+                "Other Horizon players see the logo by your name. Off, Horizon's cosmetics service never reports you as a Horizon player."
+            }
             Item::WheelCyclesSettings => {
                 "The scroll wheel over a button in the settings changes its value, as in vanilla. Off, the wheel only scrolls the list."
             }
@@ -780,7 +808,11 @@ impl Item {
             | Item::Splitscreen
             | Item::WheelCyclesSettings
             | Item::PackBrowser => Some(Cost::None),
-            Item::CosmeticsMine | Item::CosmeticsOthers | Item::CosmeticsAuras => Some(Cost::Low),
+            Item::CosmeticsMine
+            | Item::CosmeticsOthers
+            | Item::CosmeticsAuras
+            | Item::HorizonMarks
+            | Item::HorizonMe => Some(Cost::Low),
             _ => None,
         }
     }
@@ -807,6 +839,8 @@ impl Item {
             Item::WheelCyclesSettings => e.wheel_cycles_settings,
             Item::PackBrowser => e.pack_browser,
             Item::CosmeticsAuras => e.cosmetics_auras,
+            Item::HorizonMarks => e.horizon_marks,
+            Item::HorizonMe => e.horizon_listed,
             _ => return None,
         })
     }
@@ -865,6 +899,8 @@ impl Item {
                 e.cosmetics_others = if back { o.next().next() } else { o.next() };
             }
             Item::CosmeticsAuras => e.cosmetics_auras = !e.cosmetics_auras,
+            Item::HorizonMarks => e.horizon_marks = !e.horizon_marks,
+            Item::HorizonMe => e.horizon_listed = !e.horizon_listed,
             Item::SortKey => {}
         }
     }

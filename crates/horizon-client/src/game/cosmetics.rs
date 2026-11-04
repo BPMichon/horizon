@@ -52,16 +52,80 @@ pub(super) struct Cosmetics {
     /// Item files from a folder (`HORIZON_COSMETICS_LOCAL`): mannequins wear them too.
     local: bool,
     /// Show my cosmetics on its way to the service.
-    mine: MineSync,
+    mine: AccountSync,
+    /// Show me as a Horizon player: sent at start, on each change and every hour while on.
+    listed: AccountSync,
 }
 
-/// Sending Show my cosmetics: the wish it last looked at, the request on its way, and when to try
-/// again after a failure (15 s, doubling to 10 minutes).
+/// Sending one of the account's switches: the wish it last looked at, the request on its way,
+/// when to try again after a failure (15 s, doubling to 10 minutes), and when to say an unchanged
+/// wish again.
 #[derive(Default)]
-struct MineSync {
+struct AccountSync {
     wish: Option<bool>,
     sending: Option<Receiver<Result<(), String>>>,
     retry: Option<(Instant, Duration)>,
+    again: Option<Instant>,
+}
+
+impl AccountSync {
+    /// Sends `wish` on a thread when it changed, a failure's wait is over, or `again` is due;
+    /// `every`: how long a sent `true` stands before it is sent again.
+    fn poll(&mut self, wish: bool, every: Option<Duration>, send: fn(bool) -> Result<(), String>) {
+        if let Some(done) = self.sending.as_ref().and_then(|rx| rx.try_recv().ok()) {
+            self.sending = None;
+            match done {
+                Ok(()) => {
+                    self.retry = None;
+                    self.again = every
+                        .filter(|_| self.wish == Some(true))
+                        .map(|e| Instant::now() + e);
+                }
+                Err(_) => {
+                    let wait = self.retry.map_or(Duration::from_secs(15), |(_, w)| {
+                        (w * 2).min(Duration::from_secs(600))
+                    });
+                    self.retry = Some((Instant::now() + wait, wait));
+                }
+            }
+        }
+        let timer = self.retry.map(|(at, _)| at).or(self.again);
+        let due = self.wish != Some(wish) || timer.is_some_and(|at| Instant::now() >= at);
+        if due && self.sending.is_none() {
+            self.wish = Some(wish);
+            self.again = None;
+            let (tx, rx) = channel();
+            self.sending = Some(rx);
+            std::thread::Builder::new()
+                .name("Cosmetics account".into())
+                .spawn(move || {
+                    let _ = tx.send(send(wish));
+                })
+                .ok();
+        }
+    }
+}
+
+/// The cosmetics service, for the account's own calls.
+fn service() -> horizon_cosmetics::Http {
+    let api =
+        std::env::var("HORIZON_COSMETICS_API").unwrap_or_else(|_| horizon_cosmetics::API.into());
+    horizon_cosmetics::Http::new(&api, &format!("Horizon/{}", env!("CARGO_PKG_VERSION")))
+}
+
+/// Tells the service whether the signed-in account may be shown as a Horizon player (listed: it
+/// plays now). An offline account has nothing to send.
+fn send_listed(listed: bool) -> Result<(), String> {
+    let Some(session) = horizon_client::auth::current() else {
+        return Ok(());
+    };
+    horizon_cosmetics::account::set_listed(
+        &service(),
+        &session.name,
+        |id| horizon_client::auth::join_server(&session, id).map_err(|e| format!("{e:?}")),
+        listed,
+    )
+    .map(|_| ())
 }
 
 /// Makes the service keep `wish` for the signed-in account, unless it already confirmed it
@@ -75,12 +139,8 @@ fn send_mine(wish: bool) -> Result<(), String> {
     if prefs::confirmed(&home, &uuid).unwrap_or(true) == wish {
         return Ok(());
     }
-    let api =
-        std::env::var("HORIZON_COSMETICS_API").unwrap_or_else(|_| horizon_cosmetics::API.into());
-    let http =
-        horizon_cosmetics::Http::new(&api, &format!("Horizon/{}", env!("CARGO_PKG_VERSION")));
     let kept = horizon_cosmetics::account::set_visible(
-        &http,
+        &service(),
         &session.name,
         |id| horizon_client::auth::join_server(&session, id).map_err(|e| format!("{e:?}")),
         wish,
@@ -167,33 +227,12 @@ impl Game<'_> {
         }
         c.frame.set(c.frame.get().wrapping_add(1));
         // Show my cosmetics: sent once per change of the wish, then retried until confirmed.
+        // Show me as a Horizon player: also said again every hour while on.
         if !c.local {
-            let wish = self.settings.extras.cosmetics_mine;
-            let m = &mut c.mine;
-            if let Some(done) = m.sending.as_ref().and_then(|rx| rx.try_recv().ok()) {
-                m.sending = None;
-                m.retry = match done {
-                    Ok(()) => None,
-                    Err(_) => {
-                        let wait = m.retry.map_or(Duration::from_secs(15), |(_, w)| {
-                            (w * 2).min(Duration::from_secs(600))
-                        });
-                        Some((Instant::now() + wait, wait))
-                    }
-                };
-            }
-            let due = m.wish != Some(wish) || m.retry.is_some_and(|(at, _)| Instant::now() >= at);
-            if due && m.sending.is_none() {
-                m.wish = Some(wish);
-                let (tx, rx) = channel();
-                m.sending = Some(rx);
-                std::thread::Builder::new()
-                    .name("Cosmetics account".into())
-                    .spawn(move || {
-                        let _ = tx.send(send_mine(wish));
-                    })
-                    .ok();
-            }
+            let extras = &self.settings.extras;
+            c.mine.poll(extras.cosmetics_mine, None, send_mine);
+            let every = horizon_cosmetics::account::PRESENCE_EVERY;
+            c.listed.poll(extras.horizon_listed, Some(every), send_listed);
         }
         let uploads = std::mem::take(&mut *c.uploads.borrow_mut());
         for item in uploads {
@@ -209,10 +248,54 @@ impl Game<'_> {
             .retain(|_, b| Arc::strong_count(&b.item) > 1);
     }
 
-    /// The name tag style `m` wears, if cosmetics are shown for it (name tags only counts): its
-    /// mark's place in the atlas and its line's colour. None until the mark is in the atlas.
-    pub(super) fn cosmetics_tag(&self, m: &Mob, own: bool) -> Option<super::names::TagStyle> {
-        let worn = self.worn(m, own)?;
+    /// Items from a folder (`HORIZON_COSMETICS_LOCAL`): mannequins are dressed and marked too.
+    pub(super) fn cosmetics_local(&self) -> bool {
+        self.cosmetics.local
+    }
+
+    /// What goes by `m`'s name: Horizon's mark if they play Horizon (and the mark is on), and the
+    /// name tag style they wear if cosmetics are shown for them (name tags only counts). One
+    /// look in the cache for both.
+    pub(super) fn cosmetics_marks(&self, m: &Mob, own: bool) -> super::names::Marks {
+        let mut marks = super::names::Marks::default();
+        let extras = &self.settings.extras;
+        let styles = if own {
+            extras.cosmetics_mine
+        } else {
+            extras.cosmetics_others != Others::Hidden
+        };
+        if !(styles || extras.horizon_marks) {
+            return marks;
+        }
+        let (Some(client), Some(uuid)) = (&self.cosmetics.client, self.cosmetics_uuid(m, own))
+        else {
+            return marks;
+        };
+        let mut frame = client.frame();
+        marks.horizon = extras.horizon_marks && frame.horizon(uuid);
+        let worn = if styles { frame.worn(uuid) } else { None };
+        drop(frame);
+        marks.style = worn.and_then(|w| self.cosmetics_tag(&w));
+        marks
+    }
+
+    /// Those of `uuids` who play Horizon, with the mark on (the player list): one look each.
+    pub(super) fn horizon_players(
+        &self,
+        uuids: impl Iterator<Item = u128>,
+    ) -> std::collections::HashSet<u128> {
+        match &self.cosmetics.client {
+            Some(c) if self.settings.extras.horizon_marks => {
+                let mut frame = c.frame();
+                uuids.filter(|u| frame.horizon(*u)).collect()
+            }
+            _ => Default::default(),
+        }
+    }
+
+    /// The name tag style in `worn`: its badge's place in the atlas and its line's colour. None
+    /// until the badge is in the atlas.
+    fn cosmetics_tag(&self, worn: &horizon_cosmetics::Worn) -> Option<super::names::TagStyle> {
         let item = worn.iter().find(|i| i.slot == Slot::NameTag)?;
         let [r, g, b] = item.tag?.line;
         let frame = self.cosmetics.frame.get();
@@ -248,16 +331,20 @@ impl Game<'_> {
         } {
             return None;
         }
-        let uuid = if own {
-            self.remote.as_ref().map(|r| r.profile())?
+        client.frame().worn(self.cosmetics_uuid(m, own)?)
+    }
+
+    /// The UUID the service knows `m` by: a player's, or a mannequin's id with local items.
+    fn cosmetics_uuid(&self, m: &Mob, own: bool) -> Option<u128> {
+        if own {
+            self.remote.as_ref().map(|r| r.profile())
         } else if &*m.kind.id == "minecraft:player" {
-            self.remote_player_uuid(m.id)?
+            self.remote_player_uuid(m.id)
         } else if self.cosmetics.local && &*m.kind.id == "minecraft:mannequin" {
-            u128::from(m.id)
+            Some(u128::from(m.id))
         } else {
-            return None;
-        };
-        client.frame().worn(uuid)
+            None
+        }
     }
 
     /// The cosmetics `m` wears, on its bones. `gpu`: posed on the GPU (the mob pass's skin
