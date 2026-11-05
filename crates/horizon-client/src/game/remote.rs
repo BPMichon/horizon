@@ -8765,6 +8765,7 @@ impl Game<'_> {
     /// the main hand's item, then the off hand's turn (its block, its item).
     /// The server does each packet's part with that packet's hand only.
     fn remote_use_hands(&mut self) {
+        self.right_click_empty(Hand::Main);
         // A successful Item.use always drops the hand (LocalPlayer.itemUsed).
         if self.remote_use_item(Hand::Main) {
             self.heights.item_used(Hand::Main);
@@ -8785,8 +8786,19 @@ impl Game<'_> {
         if off_target {
             return;
         }
+        self.right_click_empty(Hand::Off);
         if self.remote_use_item(Hand::Off) {
             self.heights.item_used(Hand::Off);
+        }
+    }
+    /// PlayerInteractEvent.RightClickEmpty: `hand`'s turn reached its item
+    /// with that hand empty and no entity or block aimed at.
+    fn right_click_empty(&mut self, hand: Hand) {
+        if self.with_hand(hand, |g| g.held().is_none())
+            && self.pick().is_none()
+            && !self.remote_use_targets_entity()
+        {
+            self.native_right_click_empty(hand);
         }
     }
     /// `LivingEntity.updatingUsingItem` on a server client: an item held in
@@ -9145,6 +9157,8 @@ impl Game<'_> {
                 self.clicks.miss_time = 10;
             }
             self.reset_attack_strength();
+            // PlayerInteractEvent.LeftClickEmpty: the click hit nothing.
+            self.native_left_click_empty();
         }
         self.swing_arm();
         self.send(S::Punch(Empty));

@@ -1,0 +1,22 @@
+{
+  "hooks": [
+    {
+      "name": "left_click_empty",
+      "target": "horizon_client::game::native_hooks::Game<'_>::native_left_click_empty",
+      "neoforge": "PlayerInteractEvent.LeftClickEmpty",
+      "side": "client",
+      "cancellable": false,
+      "mod_api": {"contract": "listen"}
+    },
+    {
+      "name": "right_click_empty",
+      "target": "horizon_client::game::native_hooks::Game<'_>::native_right_click_empty",
+      "neoforge": "PlayerInteractEvent.RightClickEmpty",
+      "side": "client",
+      "cancellable": false,
+      "mod_api": {"contract": "listen"}
+    }
+  ],
+  "rust_summary": "clicks on nothing: an attack (`native_left_click_empty`) and an empty hand's use\n(`native_right_click_empty`).",
+  "doc_summary": "clicks on nothing, for swings, guns and spells that start in the air (NeoForge's\n`PlayerInteractEvent.LeftClickEmpty` and `RightClickEmpty`). `native_left_click_empty()` is heard once for each attack\nclick that targets no block or entity, where `Minecraft.startAttack` takes its miss branch, in creative too; not\nwhile the attack is refused (`missTime` after a miss, hands busy, an item that can't attack), nor for a spectator's\nclick or a spear's jab, which never target. `native_right_click_empty(hand)` is heard when a use click gives `hand`\nits turn (the main hand, then the off hand), nothing is aimed at and that hand is empty; not when the click ended\nfirst (an `interaction_key` cancel, a mod's claimed use, the main hand's item used), and not while an item is in\nuse or a screen takes the click. Holding the use key repeats the click every 4 ticks, and each repeat is heard.\nNeither can be cancelled: the click goes on as before, and the server is not told (a mod sends its own packet).\nUnlike NeoForge's, both are heard on a single player's window as on a server's client, since single player plays on\nits own server thread. Bundles need \"hooks\": @API:click_empty@."
+}

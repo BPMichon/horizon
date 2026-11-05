@@ -2756,6 +2756,22 @@ impl Game<'_> {
             canceled,
         );
     }
+    /// An attack click that targets nothing (`PlayerInteractEvent.LeftClickEmpty`):
+    /// `Minecraft.startAttack`'s miss branch, in creative too. Not for a refused
+    /// attack (`missTime`, busy hands, an item that can't attack), a spectator's
+    /// click or a spear's jab. The click goes on; the server isn't told. A
+    /// server's player and a single player's window. API @API:click_empty@.
+    pub(super) fn native_left_click_empty(&mut self) {
+        mod_api::dispatch_left_click_empty(self, mod_api::mods());
+    }
+    /// A use click gives the empty `hand` its turn with nothing aimed at
+    /// (`PlayerInteractEvent.RightClickEmpty`): the main hand, then the off
+    /// hand, unless the click ended first. Held-use repeats are heard too. The
+    /// click goes on; the server isn't told. A server's player and a single
+    /// player's window. API @API:click_empty@.
+    pub(super) fn native_right_click_empty(&mut self, hand: horizon_client::first_person::Hand) {
+        mod_api::dispatch_right_click_empty(self, mod_api::mods(), hand);
+    }
     /// A command typed or clicked in chat, without its slash, before the
     /// server and Horizon's commands see it: set `ran` when the mod ran it.
     pub(super) fn native_command(&mut self, command: &str, ran: &mut bool) {
